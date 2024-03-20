@@ -74,7 +74,7 @@ def download_from_s3(s3_path, force):
 def update_config(config, model_path):
     with open(config, 'r') as config_file:
         config_details = config_file.read()
-        updated_config = config_details.replace('f"{data_root}/models/Prithvi_100M.pt"', model_path)
+        updated_config = config_details.replace('f"{data_root}/models/Prithvi_100M.pt"', f"'{model_path}'")
 
     with open(config, 'w') as config_file:
         config_file.write(updated_config)
