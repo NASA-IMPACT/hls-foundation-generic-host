@@ -66,7 +66,7 @@ def download_from_s3(s3_path, force):
     key = s3_path.replace(f"s3://{bucket_name}/", '')
     if not(os.path.exists(key)) or force:
         intermediate_path = key.replace(filename, '')
-        if not(os.path.exists(intermediate_path)):
+        if intermediate_path and not(os.path.exists(intermediate_path)):
             os.makedirs(intermediate_path)
         s3_connection.download_file(bucket_name, key, key)
     return key
