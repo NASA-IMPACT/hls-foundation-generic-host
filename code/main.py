@@ -44,7 +44,7 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-BUCKET_NAME = 'hls-workshop-predictions'
+BUCKET_NAME = os.environ.get('BUCKET_NAME')
 LAYERS = ['HLSS30', 'HLSL30']
 
 MODELS = ['burn_scars', 'flood']
