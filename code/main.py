@@ -47,7 +47,7 @@ app.add_middleware(
 BUCKET_NAME = 'hls-workshop-predictions'
 LAYERS = ['HLSS30', 'HLSL30']
 
-MODELS = list('burn_scars', 'flood')
+MODELS = ['burn_scars', 'flood']
 ROLE_ARN = os.environ.get('ROLE_ARN')
 ROLE_NAME = os.environ.get('ROLE_NAME')
 
@@ -57,19 +57,33 @@ def assumed_role_session():
     client = boto3.client('sts')
     return boto3.session.Session()
 
-def download_from_s3(s3_path):
+def download_from_s3(s3_path, force):
     session = assumed_role_session()
-    s3_connection = session.resource('s3')
+    s3_connection = session.client('s3')
     splits = s3_path.split('/')
     bucket_name = splits[2]
     filename = splits[-1]
-    bucket = s3_connection.Bucket(bucket_name)
-    bucket.download_file(s3_path, filename)
-    return filename
+    key = s3_path.replace(f"s3://{bucket_name}/", '')
+    if not(os.path.exists(key)) or force:
+        intermediate_path = key.replace(filename, '')
+        if not(os.path.exists(intermediate_path)):
+            os.makedirs(intermediate_path)
+        s3_connection.download_file(bucket_name, key, key)
+    return key
 
-def load_model(config_path, model_path):
-    config = download_from_s3(config_path)
-    model_path = download_from_s3(model_path)
+def update_config(config, model_path):
+    with open(config, 'r') as config_file:
+        config_details = config_file.read()
+        updated_config = config_details.replace('f"{data_root}/models/Prithvi_100M.pt"', model_path)
+
+    with open(config, 'w') as config_file:
+        config_file.write(updated_config)
+
+
+def load_model(config_path, model_path, force=False):
+    config = download_from_s3(config_path, force)
+    model_path = download_from_s3(model_path, force)
+    update_config(config, model_path)
     infer = Infer(config, model_path)
     _ = infer.load_model()
     return infer
@@ -181,7 +195,7 @@ def infer(instances, infer_date, bounding_box, background_tasks):
     model_path = instances['model_path']
     model_type = instances['model_type']
 
-    model = load_model(config_path, model_path)
+    model = load_model(config_path, model_path, instances.get('force', False))
     all_tiles = list()
     geojson_list = list()
 
