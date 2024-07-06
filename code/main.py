@@ -51,11 +51,48 @@ MODELS = ['burn_scars', 'flood']
 ROLE_ARN = os.environ.get('ROLE_ARN')
 ROLE_NAME = os.environ.get('ROLE_NAME')
 
+MODEL_CONFIGS = {
+    'flood': {
+        'config': 'sen1floods11_Prithvi_100M.py',
+        'repo': 'ibm-nasa-geospatial/Prithvi-100M-sen1floods11',
+        'weight': 'sen1floods11_Prithvi_100M.pth',
+        'collections': ['HLSS30', 'HLSL30'],
+    },
+    'burn_scars': {
+        'config': 'burn_scars_Prithvi_100M.py',
+        'repo': 'ibm-nasa-geospatial/Prithvi-100M-burn-scar',
+        'weight': 'burn_scars_Prithvi_100M.pth',
+        'collections': ['HLSS30', 'HLSL30'],
+    }
+}
+
+TIME_DELTA = 90
+
+def update_config(config, model_path):
+    with open(config, 'r') as config_file:
+        config_details = config_file.read()
+        updated_config = config_details.replace('f"{data_root}/models/Prithvi_100M.pt"', model_path)
+        updated_config = config_details.replace('<path to pretrained weights>', model_path)
+        updated_config = updated_config.replace('[1, 2, 3, 8, 11, 12]', '[0, 1, 2, 3, 4, 5]')
+        if 'image_nodata' not in updated_config:
+            updated_config += "\nimage_nodata = -9999"
+
+    with open(config, 'w') as config_file:
+        config_file.write(updated_config)
+
+
+def load_hf_model(model_name):
+    repo = MODEL_CONFIGS[model_name]['repo']
+    config = hf_hub_download(repo, filename=MODEL_CONFIGS[model_name]['config'])
+    model_path = hf_hub_download(repo, filename=MODEL_CONFIGS[model_name]['weight'])
+    update_config(config, model_path)
+    return config, model_path
 
 def assumed_role_session():
     # Assume the "notebookAccessRole" role we created using AWS CDK.
     client = boto3.client('sts')
     return boto3.session.Session()
+
 
 def download_from_s3(s3_path, force):
     session = assumed_role_session()
@@ -70,14 +107,6 @@ def download_from_s3(s3_path, force):
             os.makedirs(intermediate_path)
         s3_connection.download_file(bucket_name, key, key)
     return key
-
-def update_config(config, model_path):
-    with open(config, 'r') as config_file:
-        config_details = config_file.read()
-        updated_config = config_details.replace('f"{data_root}/models/Prithvi_100M.pt"', f"'{model_path}'")
-
-    with open(config, 'w') as config_file:
-        config_file.write(updated_config)
 
 
 def load_model(config_path, model_path, force=False):
@@ -181,7 +210,7 @@ async def infer_from_model(request: Request, background_tasks: BackgroundTasks):
     instances = await request.json()
     infer_date = instances['date']
     bounding_box = instances['bounding_box']
-    
+
     final_geojson = infer(instances, infer_date, bounding_box, background_tasks)
     return JSONResponse(content=jsonable_encoder(final_geojson))
 
@@ -190,11 +219,13 @@ def infer(instances, infer_date, bounding_box, background_tasks):
     if 'config_path' not in instances or 'model_path' not in instances or 'model_type' not in instances:
         response = {'statusCode': 422, 'message': 'Either config_path file or model_path or model_type is missing.'}
         return JSONResponse(content=jsonable_encoder(response))
-    
-    config_path = instances['config_path']
-    model_path = instances['model_path']
     model_type = instances['model_type']
-
+    if model_type == 'burn_scars':
+        config_path = instances['config_path']
+        model_path = instances['model_path']
+    elif model_type == 'flood':
+        config_path, model_path = load_hf_model(model_type)
+    
     model = load_model(config_path, model_path, instances.get('force', False))
     all_tiles = list()
     geojson_list = list()
@@ -256,3 +287,4 @@ def infer(instances, infer_date, bounding_box, background_tasks):
         'predictions': geojson,
         's3_link': s3_link,
     }
+
